@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 — 2026-11-03
+
+- Locking now sounds like unlocking and uses the same hand animation (key in
+  hand, if you carry it). "Aufschliessen" (unlock) on doors without a lock
+  sounds like a normal unlock as well. Both go through the game's own
+  interaction path (`Player.StartInteraction`) instead of calling
+  `Lock()`/`Unlock()` directly.
+
 ## 1.1.0 — 2026-11-03
 
 - New setting **"Auch Tueren ohne Schloss abschliessen"** (also lock doors

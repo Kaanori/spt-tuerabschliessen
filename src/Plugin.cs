@@ -21,11 +21,14 @@
 //  einem Postfix hinter diese Methode und legen einen Eintrag
 //  obendrauf.
 //
-//  NICHT UEBER Door.Interact(..., EInteractionType.Lock) GEHEN.
+//  Door.Interact(..., EInteractionType.Lock) ALLEIN LAEUFT INS LEERE.
 //  Die Basisklasse verarbeitet Lock, aber Door ueberschreibt
 //  Interact und ihr Schalter kennt nur Open, Close, Unlock und
-//  Breach - der Aufruf liefe ins Leere. Darum direkt door.Lock().
-//  Kostet die Griff-Animation, wirkt aber zuverlaessig.
+//  Breach. Bis 1.1.0 darum direkt door.Lock() - stumm, ohne Hand.
+//  SEIT 1.1.1 laufen Ab- und Aufschliessen ueber den Bedienweg des
+//  Spiels (Player.StartInteraction), mit Schluessel-Animation und
+//  demselben Schloss-Klang wie das Aufsperren; den fehlenden
+//  Lock-Fall in Door.Interact ergaenzt SchlossBedienung.cs.
 //
 //  BOTS BEKOMMEN ES MIT: Lock() schreibt ueber den DoorState-
 //  Setter, und der feuert OnDoorStateChanged sowie
@@ -57,12 +60,13 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using EFT;
 using EFT.Interactive;
+using EFT.InventoryLogic;
 using EFT.UI;
 using HarmonyLib;
 
 namespace TuerAbschliessen
 {
-	[BepInPlugin("com.kaan.tuerabschliessen", "Tuer abschliessen", "1.1.0")]
+	[BepInPlugin("com.kaan.tuerabschliessen", "Tuer abschliessen", "1.1.1")]
 	// ORBIT nur, damit es vor uns geladen ist - Pflicht ist es nicht.
 	[BepInDependency(OrbitSperre.OrbitGuid, BepInDependency.DependencyFlags.SoftDependency)]
 	public class Plugin : BaseUnityPlugin
@@ -268,22 +272,26 @@ namespace TuerAbschliessen
 		{
 			try
 			{
-				// Denselben Zustand zuruecksetzen wie Oeffnen und Schliessen,
-				// sonst haengt die Spielfigur im Bedien-Zustand fest.
+				// Wie das Spiel vor dem Aufsperren (TryAddUnlock).
 				owner.Player.MovementContext.ResetCanUsePropState();
 
-				door.Lock();
+				// Mit Schloss nimmt die Hand den Schluessel mit, falls er
+				// in der Tasche steckt ("Schluessel noetig" aus: evtl. nicht).
+				KeyComponent schluessel = string.IsNullOrEmpty(door.KeyId) ? null : owner.GetKey(door);
 
-				// Merken, damit nur wir sie wieder aufbekommen.
-				if (door.DoorState == EDoorState.Locked)
-				{
-					Abgeschlossen.Merken(door);
-				}
+				// Ueber den Bedienweg des Spiels: Hand zum Schloss,
+				// Zylinder dreht und klingt, dann Lock() ueber den
+				// DoorState-Setter (KI-Navigation bekommt es mit). Gemerkt
+				// wird die Tuer erst, wenn sie wirklich zu ist
+				// (SchlossBedienung.Abschliessvorgang).
+				SchlossBedienung.Abschliessen(owner.Player, door, schluessel);
 
 				if (Plugin.Protokoll.Value)
 				{
-					Plugin.Log.LogInfo("Abgeschlossen: " + door.Id + " ("
-						+ (string.IsNullOrEmpty(door.KeyId) ? "ohne Schloss" : "Schluessel " + door.KeyId) + ")");
+					Plugin.Log.LogInfo("Abschliessen gestartet: " + door.Id + " ("
+						+ (string.IsNullOrEmpty(door.KeyId) ? "ohne Schloss" : "Schluessel " + door.KeyId
+							+ (schluessel == null ? ", nicht dabei" : ""))
+						+ ")");
 				}
 			}
 			catch (Exception ex)
@@ -298,21 +306,17 @@ namespace TuerAbschliessen
 			{
 				owner.Player.MovementContext.ResetCanUsePropState();
 
-				// Die eigene Sperre fuer diesen einen Aufruf oeffnen.
-				Abgeschlossen.Freigeben(door);
-
-				// Wie im Spiel: der Bediener wird vorher eingetragen. Die
-				// UnlockCoroutine liest ihn beim Ausloesen der Trigger.
-				door.SetUser(owner.Player);
-
-				// Die Unlock-Logik des Spiels: Zustand Shut ueber den
-				// DoorState-Setter (KI-Navigation bekommt es mit), Winkel
-				// zurueck, Trigger fuer "Shut" ausloesen.
-				door.Unlock();
+				// Ueber den Bedienweg des Spiels wie das normale Aufsperren:
+				// Schluessel-Animation, Door.Interact(Unlock) -> Unlock()
+				// -> UnlockCoroutine (Zylinder klingt, Zustand Shut ueber
+				// den DoorState-Setter, Trigger). Die Freigabe fuer unsere
+				// Sperre gibt der Prefix auf MovementContext.StartInteraction.
+				SchlossBedienung.Aufschliessen(owner.Player, door);
 
 				if (Plugin.Protokoll.Value)
 				{
-					Plugin.Log.LogInfo("Aufgeschlossen: " + door.Id + " (jetzt " + door.DoorState + ")");
+					Plugin.Log.LogInfo("Aufschliessen gestartet: " + door.Id
+						+ " (Klang " + (SchlossBedienung.HatSchlossKlang(door) ? "Zylinder" : "Ersatz") + ")");
 				}
 			}
 			catch (Exception ex)

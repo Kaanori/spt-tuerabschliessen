@@ -5,6 +5,7 @@ unlocked with the key and then closed again can be locked once more.
 
 Since 1.1.0, an optional setting (off by default) also lets you lock doors
 that have no keyhole, and bots can no longer get through a door you locked.
+Since 1.1.1, locking sounds like unlocking and uses the same hand animation.
 
 ## How this mod was made (AI disclosure)
 
@@ -20,7 +21,7 @@ bug, please open an [issue](https://github.com/Kaanori/spt-tuerabschliessen/issu
 
 ## Installation
 
-1. Download `TuerAbschliessen-1.1.0.zip` from the [Releases](https://github.com/Kaanori/spt-tuerabschliessen/releases) page.
+1. Download `TuerAbschliessen-1.1.1.zip` from the [Releases](https://github.com/Kaanori/spt-tuerabschliessen/releases) page.
 2. Extract it **into your SPT game folder** (the folder that contains `EscapeFromTarkov.exe`).
    The ZIP already has the right layout; the mod ends up in `BepInEx/plugins/`.
    On Windows, make sure "Extract All" does not add an extra subfolder.
@@ -56,10 +57,11 @@ tactical entries. A Harmony postfix appends our entry.
 
 ## Two pitfalls (for later)
 
-**1. Do not go through `Door.Interact(..., EInteractionType.Lock)`.**
+**1. `Door.Interact(..., EInteractionType.Lock)` goes nowhere out of the box.**
 The base class handles `Lock`, but `Door` overrides `Interact` and its
-switch only knows Open, Close, Unlock, Breach. The call would go nowhere.
-Hence `door.Lock()` directly.
+switch only knows Open, Close, Unlock, Breach. Up to 1.1.0 the mod hence
+called `door.Lock()` directly (silent, no hand). Since 1.1.1 a prefix adds
+exactly this case, for our own interaction only (see below).
 
 **2. `Sirenix.Serialization` must go into the csproj.** Doors inherit via
 `SerializedMonoBehaviour` (Odin Inspector). Without the reference, the
@@ -110,6 +112,36 @@ doors (`ExfiltrationDoor`) and car trunks (`Trunk`) are not a `Door` at all.
 If you turned **"Schluessel noetig"** off and locked a door with a lock but
 without its key, you get "Aufschliessen" there as well.
 
+## Sound and hand animation (1.1.1, src/SchlossBedienung.cs)
+
+Where the unlock sound comes from (`InteractionContextHelper.TryAddUnlock`):
+`Player.StartInteraction(door, UnlockResult, ...)` -> `DoorInteractState`
+(hand to the lock, key into the hand after 1 s) -> `Door.Interact(Unlock)`
+-> `Unlock()` -> `UnlockCoroutine` -> **`LockHandle.OpenCoroutine()`**. The
+door's lock cylinder (`DoorHandle LockHandle`) turns and plays `DownSound`
+(at once, group Environment) and `UpSound` (halfway through `OpenAnimation`,
+group InteractiveObjects), both rolloff 14, volume 0.8. So the sound belongs
+to the **door**, not to the key. The key only adds its jingle when it is
+taken into the hand (`Player.SpawnInHands`, `GUISounds` "pickup").
+
+Locking and unlocking now take the same path through
+`Player.StartInteraction`:
+
+- **Lock** with a result of our own (`EInteractionType.Lock`).
+  `Door.GetInteractionParameters` returns the values for Locked (key
+  animation `DoorKeyOpenInteraction`, lock grip), and the key goes into the
+  hand after 1 s. When the hand reaches the lock, the cylinder turns as on
+  unlocking (`LockHandle.OpenCoroutine`, same sound), then `Lock()` runs
+  through the `DoorState` setter.
+- **Aufschliessen** (unlock; your door without a lock or without its key)
+  with an `UnlockResult` without a key — exactly what the game builds itself
+  in `WorldInteractiveObject.Interact(Unlock)`. From there on everything
+  runs like a normal unlock, just without a key in the hand.
+- **Doors without a sounding cylinder** (nearly all doors without a lock):
+  the game is silent there too when unlocking. We play the sounds of the
+  map's most common cylinder instead — same groups, rolloff, volume and
+  timing as `DoorHandle.OpenCoroutine`, at the door handle.
+
 ## Bots stay out (1.1.0)
 
 No bot can unlock, open or kick in a door you locked (with or without a
@@ -138,9 +170,11 @@ lock) until the raid ends or you open it yourself.
 
 - **Keycard doors (KeycardDoor) are excluded.** They have their own menu
   method and a different lock.
-- **No handle animation.** `door.Lock()` sets the state immediately.
-  Bots still notice: `Lock()` writes via the `DoorState` setter, which
-  fires `OnDoorStateChanged`.
+- **Locking now takes as long as unlocking** (a good second with the hand
+  at the lock). If you are interrupted, the door stays unlocked, as in the
+  game.
+- **Experience for unlocking:** the game grants "door unlocked" experience
+  when you unlock a locked door — also one you locked yourself.
 - **Closed doors only.** Close an open door first.
 - **Kicked-in doors are broken.** `KickOpen` sets `IsBroken = true`;
   afterwards they can be neither closed nor locked. If you want to stay
