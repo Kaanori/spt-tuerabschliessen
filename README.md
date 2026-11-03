@@ -3,6 +3,9 @@
 Adds the entry **"Abschliessen"** (lock) to the door menu. A door that you
 unlocked with the key and then closed again can be locked once more.
 
+Since 1.1.0, an optional setting (off by default) also lets you lock doors
+that have no keyhole, and bots can no longer get through a door you locked.
+
 ## How this mod was made (AI disclosure)
 
 This mod was **programmed by Claude**, an AI assistant made by Anthropic.
@@ -17,7 +20,7 @@ bug, please open an [issue](https://github.com/Kaanori/spt-tuerabschliessen/issu
 
 ## Installation
 
-1. Download `TuerAbschliessen-1.0.0.zip` from the [Releases](https://github.com/Kaanori/spt-tuerabschliessen/releases) page.
+1. Download `TuerAbschliessen-1.1.0.zip` from the [Releases](https://github.com/Kaanori/spt-tuerabschliessen/releases) page.
 2. Extract it **into your SPT game folder** (the folder that contains `EscapeFromTarkov.exe`).
    The ZIP already has the right layout; the mod ends up in `BepInEx/plugins/`.
    On Windows, make sure "Extract All" does not add an extra subfolder.
@@ -36,7 +39,11 @@ Delete the mod's files from `BepInEx/plugins/` (settings: `BepInEx/config/` for 
 | **Beschriftung** (label) | `Abschliessen` | Text in the menu |
 | **Jede Tuer eintretbar** (every door kickable) | on | "Eintreten" (kick in) on every closed door, from any angle |
 | **Eintreten gelingt immer** (kicking in always succeeds) | on | No more failed kicks |
-| **Protokoll** (log) | off | Write every action to the BepInEx console |
+| **Bots duerfen eintreten** (bots may kick in) | off | Bots only open doors normally |
+| **Auch Tueren ohne Schloss abschliessen** (also lock doors without a lock) | **off** | On: doors without a keyhole can be locked too (1.1.0) |
+| **Bots respektieren abgeschlossene Tueren** (bots respect locked doors) | on | No bot can unlock, open or kick in a door you locked (1.1.0) |
+| **Beschriftung Aufschliessen** (unlock label) | `Aufschliessen` | Menu text for unlocking a lockless door you locked |
+| **Protokoll** (log) | off | Write every action, and every refused bot attempt with its caller, to the BepInEx console |
 
 ## How it works
 
@@ -79,6 +86,54 @@ Instead of defeating all four individually, two interventions are enough:
 also queried by `BotDoorOpener` — intervening there would open every door
 for every Scav. `MovementContext` belongs solely to the player character.
 
+## Doors without a lock (1.1.0, src/Abgeschlossen.cs)
+
+Requested by a user on sp-mod.com. With **"Auch Tueren ohne Schloss
+abschliessen"** (off by default) the lock entry also appears on doors without
+a `KeyId`. Such a door opens again via the entry **"Aufschliessen"** (unlock)
+or by kicking it in.
+
+Why an entry of its own: the game offers nothing to unlock a locked door
+without a `KeyId` — `InteractionContextHelper.TryAddUnlock` returns at once
+when `KeyId` is empty, only "Breach" is left. "Aufschliessen" calls the
+game's own `WorldInteractiveObject.Unlock()` (state back to Shut through the
+`DoorState` setter). It only shows up on doors you locked yourself
+(remembered per raid).
+
+Never lockable without a lock: keycard doors (`KeycardDoor`), `DoorSwitch`,
+doors the game itself locks without a key (`InitialDoorState` Locked: power,
+quest and breach-only doors), doors with a `TriggersMap`, and every door a
+script drives or watches (`Switch.Door`, `HandlerInteractable`,
+`InteractiveProxy`, cutscenes, the Lighthouse keeper, quest events). Exit
+doors (`ExfiltrationDoor`) and car trunks (`Trunk`) are not a `Door` at all.
+
+If you turned **"Schluessel noetig"** off and locked a door with a lock but
+without its key, you get "Aufschliessen" there as well.
+
+## Bots stay out (1.1.0)
+
+No bot can unlock, open or kick in a door you locked (with or without a
+lock) until the raid ends or you open it yourself.
+
+- **Vanilla** bots never touch locked doors: `BotDoorOpener.InteractionWithDoor`
+  and `WantPassTheDoor` only handle Shut and Open. **SAIN** likewise
+  (`DoorOpener.InteractWithDoor`).
+- **ORBIT** breaks locked doors open for PMCs, bypassing the game's rules:
+  `Unlock()` directly, `UnlockCoroutine()` directly (card readers),
+  `DoorState = Open` plus `CurrentAngle` directly (SnapDoorOpen, DoorWatch,
+  stuck handling), `LockForInteraction` + `Interact(Open)`.
+- So the guard sits on the door itself: the `Door.DoorState` setter,
+  `SetDoorState`, `Unlock`, `KickOpen` and the `CurrentAngle` setter (also
+  `SlidingDoor`). Only a short permit lets a change through, and only YOUR
+  player gets one (`MovementContext.StartInteraction` / `StartDoorBreak`
+  with `IsYourPlayer`), or choosing "Aufschliessen".
+- ORBIT additionally gets a "no" from its own check
+  `MultiStepAccess.CanForceUnlock` and treats the door like a power-locked
+  one: no route is planned through it.
+- **AI navigation:** `Lock()` fires `OnDoorStateChanged`; DrakiaXYZ-Waypoints
+  then switches on the door's `Carver_Closed`, so the navmesh is closed at
+  the door and bots route around it.
+
 ## Known limitations
 
 - **Keycard doors (KeycardDoor) are excluded.** They have their own menu
@@ -90,6 +145,10 @@ for every Scav. `MovementContext` belongs solely to the player character.
 - **Kicked-in doors are broken.** `KickOpen` sets `IsBroken = true`;
   afterwards they can be neither closed nor locked. If you want to stay
   quiet, use the key.
+- **While you kick or unlock it yourself** (a second or two) the door holds
+  a permit; a bot acting in exactly that moment would get through.
+- **Without DrakiaXYZ-Waypoints** the navmesh is not closed at a locked door.
+  Bots may walk up to it and have to re-route — they still cannot open it.
 
 ## Building from source
 
