@@ -3,6 +3,14 @@
 Adds the entry **"Abschliessen"** (lock) to the door menu. A door that you
 unlocked with the key and then closed again can be locked once more.
 
+## How this mod was made (AI disclosure)
+
+This mod was **programmed by Claude**, an AI assistant made by Anthropic.
+**Kaan was the tester**: Kaan has no programming background, played with the mod
+on SPT 4.1.6, reported what went wrong, and Claude fixed it. No human programmer
+has reviewed the code. It is open source so anyone can check it — if you find a
+bug, please open an [issue](https://github.com/Kaanori/spt-tuerabschliessen/issues).
+
 ## Requirements
 
 - SPT 4.1.6 (EFT 0.16.9). BepInEx ships with SPT.
